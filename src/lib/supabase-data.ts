@@ -134,6 +134,8 @@ export async function insertOutfitToSupabase(outfit: OutfitShape): Promise<void>
   }
 }
 
+//TODO
+
 /*
 Schema notes (create these in your Supabase project):
 
