@@ -3,14 +3,10 @@
 import type React from "react"
 import { useEffect, useRef, useState } from "react"
 import TextInput from "./text-input"
-import Select from "./select"
 import PrimaryButton from "./primary-button"
 
 type DraftItem = {
   name: string
-  category: "top" | "bottom" | "dress" | "shoes" | "outerwear" | "accessory"
-  color: string
-  season: "all" | "spring" | "summer" | "fall" | "winter"
   notes?: string
   photoUrl?: string | null
 }
@@ -23,9 +19,6 @@ export default function ItemForm({
   onCancel: () => void
 }) {
   const [name, setName] = useState("")
-  const [category, setCategory] = useState<DraftItem["category"]>("top")
-  const [color, setColor] = useState("")
-  const [season, setSeason] = useState<DraftItem["season"]>("all")
   const [notes, setNotes] = useState("")
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [errors, setErrors] = useState<{ name?: string }>({})
@@ -64,9 +57,6 @@ export default function ItemForm({
 
     onSave({
       name: name.trim(),
-      category,
-      color: color.trim(),
-      season,
       notes: notes.trim() || undefined,
       photoUrl: photoPreview || null,
     })
@@ -102,43 +92,6 @@ export default function ItemForm({
         value={name}
         onChange={(e) => setName(e.target.value)}
         error={errors.name}
-      />
-
-      <Select
-        id="category"
-        label="Category"
-        value={category}
-        onChange={(e) => setCategory(e.target.value as DraftItem["category"])}
-        options={[
-          { value: "top", label: "Top" },
-          { value: "bottom", label: "Bottom" },
-          { value: "dress", label: "Dress" },
-          { value: "shoes", label: "Shoes" },
-          { value: "outerwear", label: "Outerwear" },
-          { value: "accessory", label: "Accessory" },
-        ]}
-      />
-
-      <TextInput
-        id="color"
-        label="Color"
-        placeholder="e.g., white, black, blue"
-        value={color}
-        onChange={(e) => setColor(e.target.value)}
-      />
-
-      <Select
-        id="season"
-        label="Season"
-        value={season}
-        onChange={(e) => setSeason(e.target.value as DraftItem["season"])}
-        options={[
-          { value: "all", label: "All" },
-          { value: "spring", label: "Spring" },
-          { value: "summer", label: "Summer" },
-          { value: "fall", label: "Fall" },
-          { value: "winter", label: "Winter" },
-        ]}
       />
 
       <TextInput

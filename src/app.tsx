@@ -1,21 +1,18 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Header from "./components/header"
 import PrimaryButton from "./components/primary-button"
 import TextInput from "./components/text-input"
-import Select from "./components/select"
 import ItemCard from "./components/item-card"
 import ItemForm from "./components/item-form"
 import OutfitCard from "./components/outfit-card"
 import Toast from "./components/toast"
+import { fetchItemsFromSupabase, insertItemToSupabase, insertOutfitToSupabase } from "./lib/supabase-data"
 
 export type ClothingItem = {
   id: string
   name: string
-  category: "top" | "bottom" | "dress" | "shoes" | "outerwear" | "accessory"
-  color: string
-  season: "all" | "spring" | "summer" | "fall" | "winter"
   notes?: string
   photoUrl?: string | null
   createdAt: string
@@ -63,9 +60,8 @@ function generateOutfits(items: ClothingItem[], requestText: string, pieceCount:
 
   const makeRationale = (setIndex: number) => {
     const tone = setIndex === 0 ? "Clean casual" : "Versatile layered"
-    const seasonHints = setIndex === 0 ? "breathable layers" : "textures and balance"
     const ref = requestText?.trim() ? ` for ${requestText.trim()}` : ""
-    return `${tone} look${ref}. Focus on ${seasonHints} with cohesive tones.`
+    return `${tone} look${ref}. Kept pieces cohesive and easy to wear.`
   }
 
   const now = new Date().toISOString()
@@ -88,64 +84,46 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("home")
   const [items, setItems] = useState<ClothingItem[]>(() => {
     const now = new Date().toISOString()
-    // Seed closet with 4 demo items (no photos so placeholders render)
+    // Seed closet with demo items (no photos so placeholders render)
     return [
-      {
-        id: uid(),
-        name: "White Tee",
-        category: "top",
-        color: "white",
-        season: "all",
-        notes: "Crew neck",
-        photoUrl: null,
-        createdAt: now,
-      },
-      {
-        id: uid(),
-        name: "Blue Jeans",
-        category: "bottom",
-        color: "blue",
-        season: "all",
-        photoUrl: null,
-        createdAt: now,
-      },
-      {
-        id: uid(),
-        name: "Black Sneakers",
-        category: "shoes",
-        color: "black",
-        season: "all",
-        photoUrl: null,
-        createdAt: now,
-      },
-      {
-        id: uid(),
-        name: "Denim Jacket",
-        category: "outerwear",
-        color: "denim",
-        season: "spring",
-        photoUrl: null,
-        createdAt: now,
-      },
+      { id: uid(), name: "White Tee", notes: "Crew neck", photoUrl: null, createdAt: now },
+      { id: uid(), name: "Blue Jeans", photoUrl: null, createdAt: now },
+      { id: uid(), name: "Black Sneakers", photoUrl: null, createdAt: now },
+      { id: uid(), name: "Denim Jacket", notes: "Light wash", photoUrl: null, createdAt: now },
     ]
   })
   const [outfits, setOutfits] = useState<Outfit[]>([])
   const [toast, setToast] = useState<{ message: string; open: boolean }>({ message: "", open: false })
 
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const remote = await fetchItemsFromSupabase()
+        if (remote && remote.length > 0) {
+          setItems(remote)
+        }
+      } catch {
+        // Silent fallback to local seed
+      }
+    })()
+  }, [])
+
   const handleAddItem = (item: ClothingItem) => {
     // TODO: wire to Supabase insert
     setItems((prev) => [item, ...prev])
     setScreen("home")
+    insertItemToSupabase(item).catch(() => {})
   }
 
-  const handleGenerate = (requestText: string, pieceCount: number): Outfit[] => {
-    return generateOutfits(items, requestText, pieceCount)
+  const handleGenerate = (requestText: string): Outfit[] => {
+    return generateOutfits(items, requestText, 3)
   }
 
   const handleSaveOutfit = (outfit: Outfit) => {
     // TODO: wire to Supabase insert later
     setOutfits((prev) => [outfit, ...prev])
     setToast({ message: "Outfit saved.", open: true })
+    insertOutfitToSupabase(outfit).catch(() => {})
   }
 
   const recentItems = useMemo(() => items.slice(0, 50), [items])
@@ -203,9 +181,6 @@ export default function App() {
                 const item: ClothingItem = {
                   id: uid(),
                   name: draft.name,
-                  category: draft.category,
-                  color: draft.color,
-                  season: draft.season,
                   notes: draft.notes,
                   photoUrl: draft.photoUrl ?? null,
                   createdAt: now,
@@ -214,12 +189,6 @@ export default function App() {
               }}
               onCancel={() => setScreen("home")}
             />
-            <div className="grid grid-cols-2 gap-3">
-              <PrimaryButton variant="ghost" onClick={() => setScreen("home")}>
-                Cancel
-              </PrimaryButton>
-              <div />
-            </div>
           </section>
         )}
 
@@ -246,17 +215,16 @@ function GenerateScreen({
 }: {
   items: ClothingItem[]
   onBack: () => void
-  onGenerate: (requestText: string, pieceCount: number) => Outfit[]
+  onGenerate: (requestText: string) => Outfit[]
   onSaveOutfit: (outfit: Outfit) => void
 }) {
   const [request, setRequest] = useState("")
-  const [count, setCount] = useState<number>(3)
   const [results, setResults] = useState<Outfit[]>([])
 
   const canGenerate = items.length >= 2
 
   const handleGenerateClick = () => {
-    const res = onGenerate(request, count)
+    const res = onGenerate(request)
     setResults(res)
   }
 
@@ -269,18 +237,6 @@ function GenerateScreen({
           placeholder="e.g., Summer picnic, date night, office..."
           value={request}
           onChange={(e) => setRequest(e.target.value)}
-        />
-        <Select
-          id="pieces"
-          label="How many pieces?"
-          value={String(count)}
-          onChange={(e) => setCount(Number(e.target.value))}
-          options={[
-            { value: "2", label: "2" },
-            { value: "3", label: "3" },
-            { value: "4", label: "4" },
-            { value: "5", label: "5" },
-          ]}
         />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <PrimaryButton onClick={handleGenerateClick} disabled={!canGenerate}>

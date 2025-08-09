@@ -12,9 +12,7 @@ export default function ItemCard({
       <Thumb item={item} />
       <div className="min-w-0">
         <div className="text-sm font-medium text-neutral-900 truncate">{item.name}</div>
-        <div className="text-xs text-neutral-600">
-          {item.color || "—"} • {item.category} • {item.season}
-        </div>
+        {item.notes ? <div className="text-xs text-neutral-600 truncate">{item.notes}</div> : null}
         {friendlyDate ? <div className="text-[11px] text-neutral-500 mt-0.5">{friendlyDate}</div> : null}
       </div>
     </div>
@@ -39,21 +37,12 @@ function Thumb({ item }: { item: ClothingItem }) {
     .slice(0, 2)
     .toUpperCase()
 
-  // Simple color hint based on item.color text
-  const bg = item.color?.toLowerCase().includes("white")
-    ? "bg-white"
-    : item.color?.toLowerCase().includes("black")
-      ? "bg-neutral-900"
-      : "bg-neutral-200"
-
-  const text = item.color?.toLowerCase().includes("black") ? "text-white" : "text-neutral-700"
-
   return (
     <div
-      className={`${size} rounded-xl border flex items-center justify-center ${bg}`}
+      className={`${size} rounded-xl border flex items-center justify-center bg-neutral-200`}
       aria-label={`${item.name} placeholder`}
     >
-      <span className={`text-sm font-semibold ${text}`}>{initials || "?"}</span>
+      <span className="text-sm font-semibold text-neutral-700">{initials || "?"}</span>
     </div>
   )
 }

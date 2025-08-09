@@ -19,9 +19,7 @@ export default function OutfitCard({
             <Thumb item={it} />
             <div className="min-w-0">
               <div className="text-sm font-medium text-neutral-900 truncate">{it.name}</div>
-              <div className="text-xs text-neutral-600 truncate">
-                {it.category} • {it.color || "—"}
-              </div>
+              {it.notes ? <div className="text-xs text-neutral-600 truncate">{it.notes}</div> : null}
             </div>
           </div>
         ))}
@@ -52,17 +50,9 @@ function Thumb({ item }: { item: ClothingItem }) {
     .slice(0, 2)
     .toUpperCase()
 
-  const bg = item.color?.toLowerCase().includes("white")
-    ? "bg-white"
-    : item.color?.toLowerCase().includes("black")
-      ? "bg-neutral-900"
-      : "bg-neutral-200"
-
-  const text = item.color?.toLowerCase().includes("black") ? "text-white" : "text-neutral-700"
-
   return (
-    <div className={`${size} rounded-xl border flex items-center justify-center ${bg}`}>
-      <span className={`text-sm font-semibold ${text}`}>{initials || "?"}</span>
+    <div className={`${size} rounded-xl border flex items-center justify-center bg-neutral-200`}>
+      <span className="text-sm font-semibold text-neutral-700">{initials || "?"}</span>
     </div>
   )
 }
