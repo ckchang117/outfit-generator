@@ -1,4 +1,6 @@
 import type { ClothingItem } from "../app"
+import { getSupabaseBrowser } from "../lib/supabase/browser-client"
+import { useEffect, useState } from "react"
 
 export default function ItemCard({
   item,
@@ -21,14 +23,34 @@ export default function ItemCard({
 
 function Thumb({ item }: { item: ClothingItem }) {
   const size = "h-16 w-16 md:h-20 md:w-20"
-  if (item.photoUrl) {
-    return (
-      <img
-        src={item.photoUrl || "/placeholder.svg"}
-        alt={item.name}
-        className={`${size} rounded-xl object-cover border`}
-      />
-    )
+  const [src, setSrc] = useState<string | null>(null)
+
+  useEffect(() => {
+    let revoked: string | null = null
+    ;(async () => {
+      const path = item.photoUrl
+      if (!path) return
+      const sb = getSupabaseBrowser()
+      if (!sb) return
+      try {
+        if (/^https?:\/\//i.test(path)) {
+          setSrc(path)
+          return
+        }
+        const { data, error } = await sb.storage.from("item-photos").createSignedUrl(path, 60)
+        if (!error && data?.signedUrl) setSrc(data.signedUrl)
+        if (error) console.warn("createSignedUrl error:", error)
+      } catch {
+        // ignore
+      }
+      return () => {
+        if (revoked) URL.revokeObjectURL(revoked)
+      }
+    })()
+  }, [item.photoUrl])
+
+  if (src) {
+    return <img src={src} alt={item.name} className={`${size} rounded-xl object-cover border`} />
   }
   const initials = item.name
     .split(" ")

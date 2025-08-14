@@ -4,6 +4,8 @@ import type React from "react"
 import { useEffect, useRef, useState } from "react"
 import TextInput from "./text-input"
 import PrimaryButton from "./primary-button"
+import { getSupabaseBrowser, getCurrentSession } from "../lib/supabase/browser-client"
+import { ensureAuthReady } from "../lib/supabase/ensure-auth"
 
 type DraftItem = {
   name: string
@@ -21,6 +23,8 @@ export default function ItemForm({
   const [name, setName] = useState("")
   const [notes, setNotes] = useState("")
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [file, setFile] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState<{ name?: string }>({})
   const objectUrlRef = useRef<string | null>(null)
 
@@ -36,6 +40,7 @@ export default function ItemForm({
     const file = e.target.files?.[0]
     if (!file) {
       setPhotoPreview(null)
+      setFile(null)
       return
     }
     if (objectUrlRef.current) {
@@ -45,9 +50,11 @@ export default function ItemForm({
     const url = URL.createObjectURL(file)
     objectUrlRef.current = url
     setPhotoPreview(url)
+    setFile(file)
   }
 
-  const submit = () => {
+  const submit = async () => {
+    if (saving) return
     const errs: { name?: string } = {}
     if (!name.trim()) {
       errs.name = "Name is required."
@@ -55,10 +62,67 @@ export default function ItemForm({
     setErrors(errs)
     if (Object.keys(errs).length > 0) return
 
+    setSaving(true)
+    let uploadedPath: string | null = null
+    try {
+      const sb = getSupabaseBrowser()
+      if (sb && file) {
+        await ensureAuthReady(sb)
+        // Helper to guard against hanging network calls
+        const withTimeout = <T,>(p: Promise<T>, ms: number) =>
+          new Promise<T | { error: any }>((resolve) => {
+            const t = setTimeout(() => resolve({ error: new Error("timeout") }), ms)
+            p.then((v: any) => {
+              clearTimeout(t)
+              resolve(v)
+            }).catch((err) => {
+              clearTimeout(t)
+              resolve({ error: err })
+            })
+          })
+
+        // Use persistent session cache for better reliability
+        const session = await getCurrentSession()
+        let userId = session?.user?.id
+        
+        console.log("[Upload] Session check:", { hasSession: Boolean(session), userId })
+        
+        if (!userId) {
+          console.log("[Upload] No session found, trying getUser fallback")
+          const gotUser = (await withTimeout(sb.auth.getUser(), 3000)) as
+            | { data?: { user?: { id: string } | null } }
+            | { error: any }
+          userId = (gotUser as any)?.data?.user?.id
+        }
+        const folder = userId ?? "misc"
+        {
+          const ext = (file.name.split(".").pop() || "jpg").toLowerCase()
+          const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+          const uploadRes = (await withTimeout(
+            sb.storage.from("item-photos").upload(path, file, {
+              cacheControl: "3600",
+              upsert: false,
+              contentType: file.type,
+            }),
+            15000
+          )) as { data?: any; error?: any }
+          if (!uploadRes?.error) {
+            uploadedPath = path
+          } else {
+            console.warn("Storage upload failed:", uploadRes.error)
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Storage upload threw:", e)
+    } finally {
+      setSaving(false)
+    }
+
     onSave({
       name: name.trim(),
       notes: notes.trim() || undefined,
-      photoUrl: photoPreview || null,
+      photoUrl: uploadedPath || null,
     })
   }
 
@@ -105,7 +169,9 @@ export default function ItemForm({
       />
 
       <div className="grid grid-cols-2 gap-3 pt-1">
-        <PrimaryButton onClick={submit}>Save</PrimaryButton>
+        <PrimaryButton onClick={submit} loading={saving} disabled={saving}>
+          Save
+        </PrimaryButton>
         <PrimaryButton variant="ghost" onClick={onCancel}>
           Cancel
         </PrimaryButton>

@@ -1,14 +1,15 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import Header from "./components/header"
+import { getSupabaseBrowser } from "./lib/supabase/browser-client"
 import PrimaryButton from "./components/primary-button"
 import TextInput from "./components/text-input"
 import ItemCard from "./components/item-card"
 import ItemForm from "./components/item-form"
 import OutfitCard from "./components/outfit-card"
 import Toast from "./components/toast"
-import { fetchItemsFromSupabase, insertItemToSupabase, insertOutfitToSupabase } from "./lib/supabase-data"
+import { fetchItemsFromSupabase, insertItemToSupabase, insertOutfitToSupabase, deleteItemFromSupabase } from "./lib/supabase-data"
+import { ClosetGrid, ClosetItemModal } from "./components/closet-grid"
 
 export type ClothingItem = {
   id: string
@@ -94,6 +95,7 @@ export default function App() {
   })
   const [outfits, setOutfits] = useState<Outfit[]>([])
   const [toast, setToast] = useState<{ message: string; open: boolean }>({ message: "", open: false })
+  const [selectedItem, setSelectedItem] = useState<ClothingItem | null>(null)
 
   useEffect(() => {
     ;(async () => {
@@ -106,6 +108,31 @@ export default function App() {
         // Silent fallback to local seed
       }
     })()
+  }, [])
+
+  // Re-fetch after auth state changes so RLS-backed data appears post-login
+  useEffect(() => {
+    const sb = getSupabaseBrowser()
+    if (!sb) return
+    const { data: sub } = sb.auth.onAuthStateChange(async (event) => {
+      console.log("[App] Auth state change:", event)
+      // Temporarily disable auto-fetch to test if it's causing connection issues
+      // TODO: Re-enable once delete issue is resolved
+      /*
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+        console.log("[App] Significant auth change, re-fetching items...")
+        try {
+          const remote = await fetchItemsFromSupabase()
+          if (remote && remote.length > 0) {
+            setItems(remote)
+          }
+        } catch {}
+      }
+      */
+    })
+    return () => {
+      sub?.subscription.unsubscribe()
+    }
   }, [])
 
   const handleAddItem = (item: ClothingItem) => {
@@ -130,12 +157,6 @@ export default function App() {
 
   return (
     <div className="min-h-dvh bg-white">
-      <header className="border-b bg-white sticky top-0 z-10">
-        <div className="mx-auto max-w-md lg:max-w-2xl px-4">
-          <Header title="Outfit Generator" subtitle="Build your closet and spin up looks" />
-        </div>
-      </header>
-
       <main className="mx-auto max-w-md lg:max-w-2xl px-4 py-4">
         {screen === "home" && (
           <section className="space-y-6">
@@ -166,10 +187,28 @@ export default function App() {
               )}
             </div>
 
-            <p className="text-xs text-neutral-500">
-              {/* TODO: wire to Supabase select later */}
-              All data is local for now; will sync to Supabase later.
-            </p>
+            {/* Closet grid */}
+            <ClosetGrid
+              items={items}
+              onSelect={(it) => setSelectedItem(it)}
+              onRemove={(it) => {
+                console.log("[Delete] Grid onRemove START:", { id: it.id, name: it.name, timestamp: new Date().toISOString() })
+                deleteItemFromSupabase(it.id, it.photoUrl ?? null)
+                  .then((ok) => {
+                    console.log("[Delete] Grid onRemove: deleteItemFromSupabase returned:", ok)
+                    if (ok) {
+                      console.log("[Delete] Grid onRemove: removing from local state")
+                      setItems((prev) => prev.filter((p) => p.id !== it.id))
+                    }
+                    setToast({ message: ok ? "Item removed." : "Failed to remove item.", open: true })
+                    console.log("[Delete] Grid onRemove COMPLETE:", { success: ok })
+                  })
+                  .catch((error) => {
+                    console.log("[Delete] Grid onRemove ERROR:", error)
+                    setToast({ message: "Failed to remove item.", open: true })
+                  })
+              }}
+            />
           </section>
         )}
 
@@ -203,6 +242,28 @@ export default function App() {
       </main>
 
       <Toast open={toast.open} message={toast.message} onOpenChange={(open) => setToast((t) => ({ ...t, open }))} />
+      <ClosetItemModal
+        item={selectedItem}
+        onClose={() => setSelectedItem(null)}
+        onRemove={(it) => {
+          console.log("[Delete] Modal onRemove START:", { id: it.id, name: it.name, timestamp: new Date().toISOString() })
+          deleteItemFromSupabase(it.id, it.photoUrl ?? null)
+            .then((ok) => {
+              console.log("[Delete] Modal onRemove: deleteItemFromSupabase returned:", ok)
+              setSelectedItem(null)
+              if (ok) {
+                console.log("[Delete] Modal onRemove: removing from local state")
+                setItems((prev) => prev.filter((p) => p.id !== it.id))
+              }
+              setToast({ message: ok ? "Item removed." : "Failed to remove item.", open: true })
+              console.log("[Delete] Modal onRemove COMPLETE:", { success: ok })
+            })
+            .catch((error) => {
+              console.log("[Delete] Modal onRemove ERROR:", error)
+              setToast({ message: "Failed to remove item.", open: true })
+            })
+        }}
+      />
     </div>
   )
 }
