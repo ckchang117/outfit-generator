@@ -16,17 +16,9 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
-      <head>
-        <style>{`
-html {
-  font-family: ${GeistSans.style.fontFamily};
-  --font-sans: ${GeistSans.variable};
-  --font-mono: ${GeistMono.variable};
-}
-        `}</style>
-      </head>
-      <body>
+    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <head></head>
+      <body className="font-sans">
         <header className="border-b bg-white sticky top-0 z-10">
           <div className="mx-auto max-w-md lg:max-w-2xl px-4 py-4 flex items-center justify-between">
             <div className="min-w-0">

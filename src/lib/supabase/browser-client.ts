@@ -28,6 +28,24 @@ export function getSupabaseBrowser(): SupabaseClient | null {
       // Ensure session is stored and retrieved properly
       storage: typeof window !== 'undefined' ? window.localStorage : undefined,
     },
+    // Add connection pooling and timeout settings
+    db: {
+      schema: 'public',
+    },
+    global: {
+      // Add request timeout to prevent hanging
+      fetch: (url, options = {}) => {
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 15000) // 15s timeout
+        
+        return fetch(url, {
+          ...options,
+          signal: controller.signal,
+        }).finally(() => {
+          clearTimeout(timeout)
+        })
+      },
+    },
   })
 
   // Set up persistent session tracking

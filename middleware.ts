@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server"
 import { NextResponse } from "next/server"
 
-// No-op middleware: do not refresh Supabase session cookies
-export function middleware(_request: NextRequest) {
+// Temporarily disable middleware to debug
+export function middleware(request: NextRequest) {
+  console.log("[Middleware] Request to:", request.nextUrl.pathname)
   return NextResponse.next()
 }
 

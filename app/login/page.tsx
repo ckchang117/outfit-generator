@@ -23,16 +23,20 @@ export default function LoginPage() {
         setError("Supabase not configured")
         return
       }
-      const { error } = await sb.auth.signInWithPassword({ email, password })
+      const { error, data } = await sb.auth.signInWithPassword({ email, password })
       if (error) {
         setError(error.message || "Login failed")
         return
       }
-      router.replace("/")
-      // Ensure header sees hydrated session immediately after navigation
-      setTimeout(() => {
-        if (typeof window !== "undefined") window.location.reload()
-      }, 0)
+      
+      // Successful login - wait for session to be established
+      if (data.session) {
+        console.log("[Login] Sign in successful, redirecting to home...")
+        // Small delay to ensure session is properly set
+        setTimeout(() => {
+          router.push("/")
+        }, 100)
+      }
     } finally {
       setLoading(false)
     }

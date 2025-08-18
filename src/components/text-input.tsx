@@ -35,7 +35,7 @@ export default function TextInput({
   return (
     <div className={cn("grid gap-1.5", className)}>
       {label ? (
-        <label htmlFor={id} className="text-xs font-medium text-neutral-700">
+        <label htmlFor={id} className="text-sm font-medium text-neutral-700">
           {label}
         </label>
       ) : null}
