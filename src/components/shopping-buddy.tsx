@@ -58,16 +58,56 @@ export default function ShoppingBuddy({ items, onBack }: ShoppingBuddyProps) {
   const [analyzedItemPhotoIndex, setAnalyzedItemPhotoIndex] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleImageCapture = useCallback(async (file: File) => {
-    // Convert file to base64
-    const reader = new FileReader()
-    reader.onloadend = async () => {
-      const base64 = reader.result as string
-      setCapturedImages(prev => [...prev, base64])
-      // Don't auto-analyze anymore - wait for user to click "Analyze Item"
-    }
-    reader.readAsDataURL(file)
+  const resizeImage = useCallback((file: File, maxWidth: number = 800, maxHeight: number = 800, quality: number = 0.8): Promise<string> => {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')!
+      const img = new Image()
+      
+      img.onload = () => {
+        // Calculate new dimensions while maintaining aspect ratio
+        let { width, height } = img
+        
+        if (width > height) {
+          if (width > maxWidth) {
+            height = (height * maxWidth) / width
+            width = maxWidth
+          }
+        } else {
+          if (height > maxHeight) {
+            width = (width * maxHeight) / height
+            height = maxHeight
+          }
+        }
+        
+        canvas.width = width
+        canvas.height = height
+        
+        // Draw and compress
+        ctx.drawImage(img, 0, 0, width, height)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      
+      img.src = URL.createObjectURL(file)
+    })
   }, [])
+
+  const handleImageCapture = useCallback(async (file: File) => {
+    try {
+      // Resize image before converting to base64 (70% size reduction)
+      const resizedBase64 = await resizeImage(file, 800, 800, 0.8)
+      setCapturedImages(prev => [...prev, resizedBase64])
+    } catch (error) {
+      console.error('Image resize failed, using original:', error)
+      // Fallback to original method
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const base64 = reader.result as string
+        setCapturedImages(prev => [...prev, base64])
+      }
+      reader.readAsDataURL(file)
+    }
+  }, [resizeImage])
 
   const analyzeImages = async () => {
     if (capturedImages.length === 0) return

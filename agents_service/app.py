@@ -1,6 +1,8 @@
 import os
 import random
 import asyncio
+import hashlib
+import time
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, validator
 from typing import List, Optional, Dict, Any, Union
@@ -23,6 +25,30 @@ if not OPENAI_API_KEY:
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 app = FastAPI(title="Outfit Generator Agents Service")
+
+# Simple in-memory cache with TTL
+wardrobe_analysis_cache = {}
+CACHE_TTL = 3600  # 1 hour
+
+def create_cache_key(data: dict) -> str:
+    """Create a cache key from data"""
+    data_str = json.dumps(data, sort_keys=True)
+    return hashlib.md5(data_str.encode()).hexdigest()
+
+def get_cached_result(cache_key: str, cache_dict: dict):
+    """Get cached result if still valid"""
+    if cache_key in cache_dict:
+        result, timestamp = cache_dict[cache_key]
+        if time.time() - timestamp < CACHE_TTL:
+            return result
+        else:
+            # Remove expired cache
+            del cache_dict[cache_key]
+    return None
+
+def set_cached_result(cache_key: str, result: any, cache_dict: dict):
+    """Cache a result with timestamp"""
+    cache_dict[cache_key] = (result, time.time())
 
 
 @app.get("/")
@@ -2092,6 +2118,18 @@ async def analyze_wardrobe(req: WardrobeAnalysisRequest):
     try:
         if len(req.closet_items) == 0:
             raise HTTPException(status_code=400, detail="No closet items provided for analysis")
+
+        # Check cache first (cache based on item names + focus areas for speed)
+        cache_data = {
+            "items": [{"name": item.name, "category": item.category, "colors": item.colors} for item in req.closet_items],
+            "focus_areas": req.focus_areas
+        }
+        cache_key = create_cache_key(cache_data)
+        
+        cached_result = get_cached_result(cache_key, wardrobe_analysis_cache)
+        if cached_result:
+            print(f"[WardrobeAnalyst] Cache hit! Returning cached analysis")
+            return cached_result
         
         # Prepare wardrobe data for analysis
         wardrobe_summary = []
@@ -2369,6 +2407,10 @@ async def analyze_wardrobe(req: WardrobeAnalysisRequest):
                   f"scores: V={wardrobe_analysis.versatility_score:.2f}, "
                   f"Co={wardrobe_analysis.cohesion_score:.2f}, "
                   f"Cm={wardrobe_analysis.completeness_score:.2f}")
+            
+            # Cache the result for future requests
+            set_cached_result(cache_key, wardrobe_analysis, wardrobe_analysis_cache)
+            print(f"[WardrobeAnalyst] Result cached for future requests")
             
             return wardrobe_analysis
             
