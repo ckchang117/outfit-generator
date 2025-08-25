@@ -4,7 +4,7 @@ import asyncio
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, validator
 from typing import List, Optional, Dict, Any, Union
-from openai_agents import Agent, Runner
+from agents import Agent, Runner
 from dotenv import load_dotenv
 import json
 import re
