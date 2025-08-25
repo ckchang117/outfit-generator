@@ -67,17 +67,17 @@ export function ClosetGrid({ items, onSelect, onRemove, onEdit }: {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-sm font-medium text-neutral-700">Closet</h2>
+      <h2 className="text-lg font-semibold text-neutral-700">Closet</h2>
       {categoriesWithItems.map(({ key, name }) => (
         <div key={key} className="space-y-2">
-          <h3 className="text-xs font-medium text-neutral-600 uppercase tracking-wide">
+          <h3 className="text-sm font-medium text-neutral-600 uppercase tracking-wide">
             {name} ({categorizedItems[key].length})
           </h3>
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
             {categorizedItems[key].map((item) => (
               <div
                 key={item.id}
-                className="group relative rounded-xl border overflow-hidden bg-white hover:shadow-sm transition cursor-pointer"
+                className="group relative rounded-xl border overflow-hidden bg-white shadow-sm hover:shadow-md hover:scale-105 transition-all duration-200 cursor-pointer"
                 title={`${item.name}${item.notes ? ` — ${item.notes}` : ""}`}
                 onClick={() => onSelect(item)}
               >
@@ -138,39 +138,56 @@ function Thumb({ item }: { item: ClothingItem }) {
   const hasMultiplePhotos = photoUrls.length > 1
 
   useEffect(() => {
+    let isMounted = true
+    
     const loadSignedUrls = async () => {
       if (photoUrls.length === 0) {
-        setLoading(false)
+        if (isMounted) setLoading(false)
         return
       }
 
       const sb = getSupabaseBrowser()
       if (!sb) {
-        setLoading(false)
+        if (isMounted) setLoading(false)
+        return
+      }
+
+      // Check if user has valid session before attempting storage operations
+      const session = await getCurrentSession()
+      if (!session) {
+        if (isMounted) setLoading(false)
         return
       }
 
       try {
         const urls: string[] = []
         for (const path of photoUrls) {
+          if (!isMounted) break // Stop if component unmounted
+          
           if (/^https?:\/\//i.test(path)) {
             urls.push(path)
           } else {
-            const { data, error } = await sb.storage.from("item-photos").createSignedUrl(path, 300)
+            const { data, error } = await sb.storage.from("item-photos").createSignedUrl(path, 36000)
             if (!error && data?.signedUrl) {
               urls.push(data.signedUrl)
+            } else if (error) {
+              console.warn("Failed to create signed URL:", error)
             }
           }
         }
-        setSignedUrls(urls)
+        if (isMounted) setSignedUrls(urls)
       } catch (error) {
         console.warn("Failed to load photo URLs:", error)
       } finally {
-        setLoading(false)
+        if (isMounted) setLoading(false)
       }
     }
 
     loadSignedUrls()
+    
+    return () => {
+      isMounted = false
+    }
   }, [photoUrls])
 
   const nextPhoto = (e: React.MouseEvent) => {
@@ -271,39 +288,56 @@ function LargeThumb({ item }: { item: ClothingItem }) {
   const hasMultiplePhotos = photoUrls.length > 1
 
   useEffect(() => {
+    let isMounted = true
+    
     const loadSignedUrls = async () => {
       if (photoUrls.length === 0) {
-        setLoading(false)
+        if (isMounted) setLoading(false)
         return
       }
 
       const sb = getSupabaseBrowser()
       if (!sb) {
-        setLoading(false)
+        if (isMounted) setLoading(false)
+        return
+      }
+
+      // Check if user has valid session before attempting storage operations
+      const session = await getCurrentSession()
+      if (!session) {
+        if (isMounted) setLoading(false)
         return
       }
 
       try {
         const urls: string[] = []
         for (const path of photoUrls) {
+          if (!isMounted) break // Stop if component unmounted
+          
           if (/^https?:\/\//i.test(path)) {
             urls.push(path)
           } else {
-            const { data } = await sb.storage.from("item-photos").createSignedUrl(path, 600)
+            const { data, error } = await sb.storage.from("item-photos").createSignedUrl(path, 36000)
             if (data?.signedUrl) {
               urls.push(data.signedUrl)
+            } else if (error) {
+              console.warn("Failed to create signed URL for LargeThumb:", error)
             }
           }
         }
-        setSignedUrls(urls)
+        if (isMounted) setSignedUrls(urls)
       } catch (error) {
         console.warn("Failed to load photo URLs:", error)
       } finally {
-        setLoading(false)
+        if (isMounted) setLoading(false)
       }
     }
 
     loadSignedUrls()
+    
+    return () => {
+      isMounted = false
+    }
   }, [photoUrls])
 
   const nextPhoto = () => {

@@ -73,6 +73,10 @@ Thumbs.db
 .claude/
 CLAUDE.md
 
+# Internal documentation
+DEPLOYMENT.md
+AI_SETUP.md
+
 # Logs
 *.log
 logs/
@@ -80,6 +84,3 @@ logs/
 # Temporary files
 tmp/
 .temp/
-
-#SQL scripts
-scripts/

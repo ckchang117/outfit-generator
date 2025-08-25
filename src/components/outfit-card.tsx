@@ -2,8 +2,8 @@
 
 import PrimaryButton from "./primary-button"
 import type { ClothingItem } from "../app"
-import { useEffect, useState } from "react"
-import { getSupabaseBrowser } from "../lib/supabase/browser-client"
+import { useState } from "react"
+import { useSignedUrl } from "../hooks/use-signed-url"
 import { ImageModal } from "./image-modal"
 
 export default function OutfitCard({
@@ -22,7 +22,7 @@ export default function OutfitCard({
   const [selectedItem, setSelectedItem] = useState<ClothingItem | null>(null)
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0)
   return (
-    <div className="border rounded-2xl p-3 space-y-3 hover:shadow-sm transition">
+    <div className="border rounded-xl p-3 space-y-3 shadow-sm hover:shadow-md transition-shadow duration-200">
       <div className="flex gap-3 overflow-x-auto">
         {items.map((it) => (
           <div 
@@ -80,28 +80,7 @@ export default function OutfitCard({
 
 function Thumb({ item }: { item: ClothingItem }) {
   const size = "h-16 w-16 md:h-20 md:w-20"
-  const [src, setSrc] = useState<string | null>(null)
-
-  useEffect(() => {
-    let canceled = false
-    ;(async () => {
-      const path = item.photoUrl
-      if (!path) return
-      const sb = getSupabaseBrowser()
-      if (!sb) return
-      try {
-        if (/^https?:\/\//i.test(path)) {
-          if (!canceled) setSrc(path)
-          return
-        }
-        const { data, error } = await sb.storage.from("item-photos").createSignedUrl(path, 300)
-        if (!error && data?.signedUrl && !canceled) setSrc(data.signedUrl)
-      } catch {}
-    })()
-    return () => {
-      canceled = true
-    }
-  }, [item.photoUrl])
+  const src = useSignedUrl(item.photoUrl)
 
   if (src) {
     return (

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import type { ClothingItem, Outfit } from "../app"
 import PrimaryButton from "./primary-button"
-import { getSupabaseBrowser } from "../lib/supabase/browser-client"
+import { getSupabaseBrowser, getCurrentSession } from "../lib/supabase/browser-client"
 import { ImageModal } from "./image-modal"
 
 export function OutfitDetailModal({
@@ -154,13 +154,20 @@ function OutfitItemCard({ item, onClick }: { item: ClothingItem; onClick?: () =>
     ;(async () => {
       const path = item.photoUrl
       if (!path) {
-        setIsLoading(false)
+        if (!canceled) setIsLoading(false)
         return
       }
       
       const sb = getSupabaseBrowser()
       if (!sb) {
-        setIsLoading(false)
+        if (!canceled) setIsLoading(false)
+        return
+      }
+      
+      // Check if user has valid session before attempting storage operations
+      const session = await getCurrentSession()
+      if (!session) {
+        if (!canceled) setIsLoading(false)
         return
       }
       
@@ -173,9 +180,11 @@ function OutfitItemCard({ item, onClick }: { item: ClothingItem; onClick?: () =>
           return
         }
         
-        const { data, error } = await sb.storage.from("item-photos").createSignedUrl(path, 3600)
+        const { data, error } = await sb.storage.from("item-photos").createSignedUrl(path, 36000)
         if (!error && data?.signedUrl && !canceled) {
           setSrc(data.signedUrl)
+        } else if (error) {
+          console.warn("Failed to create signed URL in outfit-detail-modal:", error)
         }
       } catch (error) {
         console.warn("Failed to load image:", error)

@@ -247,6 +247,7 @@ export async function POST(req: NextRequest) {
       success: true,
       outfit: primaryOutfit,
       alternates: validatedOutfits.slice(1), // Return other outfits as alternates
+      shoppingRecommendations: agentsResponse.shopping_recommendations || [],
       generationTimeMs: generationTime,
       // Include generation context for potential saving
       generationMetadata: {

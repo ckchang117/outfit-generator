@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import type { ClothingItem, Outfit } from "../app"
 import PrimaryButton from "./primary-button"
-import { getSupabaseBrowser } from "../lib/supabase/browser-client"
+import { getSupabaseBrowser, getCurrentSession } from "../lib/supabase/browser-client"
 
 export function OutfitsGrid({ 
   outfits, 
@@ -161,15 +161,25 @@ function OutfitItemThumb({ item }: { item: ClothingItem }) {
     ;(async () => {
       const path = item.photoUrl
       if (!path) return
+      
       const sb = getSupabaseBrowser()
       if (!sb) return
+      
+      // Check if user has valid session before attempting storage operations
+      const session = await getCurrentSession()
+      if (!session) return
+      
       try {
         if (/^https?:\/\//i.test(path)) {
           if (!canceled) setSrc(path)
           return
         }
-        const { data, error } = await sb.storage.from("item-photos").createSignedUrl(path, 300)
-        if (!error && data?.signedUrl && !canceled) setSrc(data.signedUrl)
+        const { data, error } = await sb.storage.from("item-photos").createSignedUrl(path, 36000)
+        if (!error && data?.signedUrl && !canceled) {
+          setSrc(data.signedUrl)
+        } else if (error) {
+          console.warn("createSignedUrl error in outfits-grid:", error)
+        }
       } catch {}
     })()
     return () => {

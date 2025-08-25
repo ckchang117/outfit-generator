@@ -271,18 +271,40 @@ export async function fetchOutfitsFromSupabase(): Promise<OutfitShape[]> {
   }
 }
 
-// Fetch latest items from Supabase (if env present). Returns [] on any failure.
-export async function fetchItemsFromSupabase(): Promise<ClothingItemShape[]> {
+// Get total count of items
+export async function getItemsCount(): Promise<number> {
+  const sb = getSupabase()
+  if (!sb || itemsTableDisabled) return 0
+
+  try {
+    const { count, error } = await sb
+      .from("clothing_items")
+      .select("*", { count: 'exact', head: true })
+
+    if (error) {
+      console.info("Failed to get items count:", error)
+      return 0
+    }
+
+    return count || 0
+  } catch (e) {
+    console.info("Failed to get items count:", e)
+    return 0
+  }
+}
+
+// Fetch latest items from Supabase with pagination support
+export async function fetchItemsFromSupabase(limit: number = 20, offset: number = 0): Promise<ClothingItemShape[]> {
   const sb = getSupabase()
   if (!sb || itemsTableDisabled) return []
 
   try {
-    console.log("[Fetch] Getting items from Supabase...")
+    console.log("[Fetch] Getting items from Supabase...", { limit, offset })
     const { data, error } = await sb
       .from("clothing_items")
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(200)
+      .range(offset, offset + limit - 1)
 
     console.log("[Fetch] Raw fetch result:", { data, error, itemCount: data?.length })
     

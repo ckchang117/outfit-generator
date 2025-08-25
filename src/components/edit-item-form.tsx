@@ -38,29 +38,46 @@ export default function EditItemForm({
 
   // Load signed URLs for existing photos
   useEffect(() => {
+    let isMounted = true
+    
     const loadExistingPhotos = async () => {
       const sb = getSupabaseBrowser()
       if (!sb) return
 
+      // Check if user has valid session before attempting storage operations
+      const session = await getCurrentSession()
+      if (!session) return
+
       const urls: Record<string, string> = {}
       for (const photoPath of existingPhotos) {
+        if (!isMounted) break // Stop if component unmounted
+        
         try {
           if (/^https?:\/\//i.test(photoPath)) {
             urls[photoPath] = photoPath
           } else {
-            const { data } = await sb.storage.from("item-photos").createSignedUrl(photoPath, 600)
+            const { data, error } = await sb.storage.from("item-photos").createSignedUrl(photoPath, 36000)
             if (data?.signedUrl) {
               urls[photoPath] = data.signedUrl
+            } else if (error) {
+              console.warn("Failed to create signed URL in edit-item-form:", error)
             }
           }
         } catch (error) {
           console.warn("Failed to load photo:", photoPath, error)
         }
       }
-      setExistingPhotoUrls(urls)
+      
+      if (isMounted) {
+        setExistingPhotoUrls(urls)
+      }
     }
 
     loadExistingPhotos()
+    
+    return () => {
+      isMounted = false
+    }
   }, [existingPhotos])
 
   useEffect(() => {

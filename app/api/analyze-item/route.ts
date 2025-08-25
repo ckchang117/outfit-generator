@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
         const storageClient = serviceClient || sb
         const { data, error } = await storageClient.storage
           .from("item-photos")
-          .createSignedUrl(photoPath, 600) // 10 minute expiry
+          .createSignedUrl(photoPath, 36000) // 10 hours expiry
         
         if (error) {
           console.warn("[AnalyzeItem] createSignedUrl error", { message: error.message })

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import type { ClothingItem } from "../app"
-import { getSupabaseBrowser } from "../lib/supabase/browser-client"
+import { getSupabaseBrowser, getCurrentSession } from "../lib/supabase/browser-client"
 
 export function ImageModal({
   item,
@@ -57,8 +57,8 @@ export function ImageModal({
 
     ;(async () => {
       try {
-        // If it's already a full URL, use it directly
-        if (/^https?:\/\//i.test(currentPhotoUrl)) {
+        // If it's already a full URL or base64 data URL, use it directly
+        if (/^https?:\/\//i.test(currentPhotoUrl) || currentPhotoUrl.startsWith('data:')) {
           if (!canceled) {
             setSrc(currentPhotoUrl)
             setIsLoading(false)
@@ -69,18 +69,33 @@ export function ImageModal({
         // Get high-resolution signed URL from Supabase
         const sb = getSupabaseBrowser()
         if (!sb) {
-          setError(true)
-          setIsLoading(false)
+          if (!canceled) {
+            setError(true)
+            setIsLoading(false)
+          }
+          return
+        }
+
+        // Check if user has valid session before attempting storage operations
+        const session = await getCurrentSession()
+        if (!session) {
+          if (!canceled) {
+            setError(true)
+            setIsLoading(false)
+          }
           return
         }
 
         const { data, error } = await sb.storage
           .from("item-photos")
-          .createSignedUrl(currentPhotoUrl, 3600) // 1 hour expiry for full-res images
+          .createSignedUrl(currentPhotoUrl, 36000) // 10 hours expiry for full-res images
 
         if (!error && data?.signedUrl && !canceled) {
           setSrc(data.signedUrl)
         } else if (!canceled) {
+          if (error) {
+            console.warn("Failed to create signed URL in image-modal:", error)
+          }
           setError(true)
         }
       } catch (err) {

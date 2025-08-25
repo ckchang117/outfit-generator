@@ -13,6 +13,9 @@ import { fetchItemsFromSupabase, insertItemToSupabase, insertOutfitToSupabase, d
 import { ClosetGrid, ClosetItemModal } from "./components/closet-grid"
 import { OutfitsGrid } from "./components/outfits-grid"
 import { OutfitDetailModal } from "./components/outfit-detail-modal"
+import ShoppingRecommendations from "./components/shopping-recommendations"
+import WardrobeAnalysisScreen from "./components/wardrobe-analysis"
+import ShoppingBuddy from "./components/shopping-buddy"
 
 export type ClothingItem = {
   id: string
@@ -48,7 +51,18 @@ export type Outfit = {
   title?: string
 }
 
-type Screen = "home" | "add" | "generate" | "edit" | "outfits"
+export type ShoppingRecommendation = {
+  item_type: string
+  specifications: string
+  rationale: string
+  search_query: string
+  budget_range: string
+  priority: string
+  outfit_impact: number
+  pair_with_ids?: string[]
+}
+
+type Screen = "home" | "add" | "generate" | "edit" | "outfits" | "analysis" | "shopping"
 
 function uid() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
@@ -105,28 +119,74 @@ function generateOutfits(items: ClothingItem[], requestText: string, pieceCount:
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("home")
+  
+  // Single items list for everything - load all at once
   const [items, setItems] = useState<ClothingItem[]>([])
+  const [itemsLoading, setItemsLoading] = useState(true)
+
+  // Scroll to top when navigating to home screen
+  useEffect(() => {
+    if (screen === "home") {
+      window.scrollTo(0, 0)
+    }
+  }, [screen])
+  
+  // Load all items on mount and after auth changes
+  const loadAllItems = async () => {
+    setItemsLoading(true)
+    try {
+      // Load all items at once (no pagination)
+      const allItems = await fetchItemsFromSupabase(1000, 0) // High limit to get everything
+      console.log("[App] Loaded all items:", allItems.length)
+      setItems(allItems)
+      
+      // Cache in sessionStorage for fast refreshes
+      try {
+        sessionStorage.setItem('outfit-generator-items', JSON.stringify({
+          items: allItems,
+          timestamp: Date.now()
+        }))
+      } catch (e) {
+        console.warn("[App] Failed to cache items:", e)
+      }
+    } catch (error) {
+      console.error("[App] Failed to load items:", error)
+    } finally {
+      setItemsLoading(false)
+    }
+  }
+  
+  // Helper functions for managing items locally
+  const addItem = (item: ClothingItem) => {
+    setItems(prev => [item, ...prev])
+  }
+  
+  const updateItem = (id: string, updates: Partial<ClothingItem>) => {
+    setItems(prev => prev.map(item => 
+      item.id === id ? { ...item, ...updates } : item
+    ))
+  }
+  
+  const removeItem = (id: string) => {
+    setItems(prev => prev.filter(item => item.id !== id))
+  }
+  
   const [outfits, setOutfits] = useState<Outfit[]>([])
-  const [toast, setToast] = useState<{ message: string; open: boolean }>({ message: "", open: false })
+  const [toast, setToast] = useState<{ message: string; open: boolean; action?: string; onAction?: () => void }>({ message: "", open: false })
   const [selectedItem, setSelectedItem] = useState<ClothingItem | null>(null)
   const [editingItem, setEditingItem] = useState<ClothingItem | null>(null)
   const [selectedOutfit, setSelectedOutfit] = useState<Outfit | null>(null)
+  const [retryableItem, setRetryableItem] = useState<ClothingItem | null>(null)
 
   useEffect(() => {
     ;(async () => {
       try {
-        const [remoteItems, remoteOutfits] = await Promise.all([
-          fetchItemsFromSupabase(),
-          fetchOutfitsFromSupabase()
-        ])
-        if (remoteItems && remoteItems.length > 0) {
-          setItems(remoteItems)
-        }
+        const remoteOutfits = await fetchOutfitsFromSupabase()
         if (remoteOutfits && remoteOutfits.length > 0) {
           setOutfits(remoteOutfits)
         }
       } catch {
-        // Silent fallback to local seed
+        // Silent fallback
       }
     })()
   }, [])
@@ -150,13 +210,11 @@ export default function App() {
         setTimeout(async () => {
           console.log("[App] Fetching data after auth change...")
           try {
-            const [remoteItems, remoteOutfits] = await Promise.all([
-              fetchItemsFromSupabase(),
-              fetchOutfitsFromSupabase()
-            ])
-            if (remoteItems && remoteItems.length > 0) {
-              setItems(remoteItems)
-            }
+            // Reload all items
+            await loadAllItems()
+            
+            // Fetch outfits
+            const remoteOutfits = await fetchOutfitsFromSupabase()
             if (remoteOutfits && remoteOutfits.length > 0) {
               setOutfits(remoteOutfits)
             }
@@ -172,61 +230,122 @@ export default function App() {
     }
   }, [])
 
+  const handleRetryItem = async () => {
+    if (!retryableItem) return
+    
+    const item = { ...retryableItem, id: uid() } // Generate new ID for retry
+    setRetryableItem(null) // Clear retry state
+    await handleAddItem(item)
+  }
+
   const handleAddItem = async (item: ClothingItem) => {
-    // TODO: wire to Supabase insert
-    setItems((prev) => [item, ...prev])
+    // Optimistically add to items list
+    addItem(item)
     setScreen("home")
     
-    // First, ensure item is saved
-    try {
-      await insertItemToSupabase(item)
-      console.log("Item saved to Supabase:", item.id)
-    } catch (error) {
-      console.error("Failed to save item:", error)
-      return
-    }
+    let itemInserted = false
     
-    // Trigger AI analysis in background after a delay
-    if (item.photoUrls && item.photoUrls.length > 0) {
-      setTimeout(async () => {
+    try {
+      // First, ensure item is saved
+      await insertItemToSupabase(item)
+      itemInserted = true
+      console.log("Item saved to Supabase:", item.id)
+      
+      // Show initial success toast
+      setToast({ message: "Item added. Analyzing details...", open: true })
+      
+      // Trigger AI analysis
+      if (item.photoUrls && item.photoUrls.length > 0) {
+        // Get current user ID
+        const sb = getSupabaseBrowser()
+        let userId = null
+        if (sb) {
+          const { data: { user } } = await sb.auth.getUser()
+          userId = user?.id
+        }
+        
+        if (!userId) {
+          throw new Error("No user ID available for analysis")
+        }
+        
+        console.log("Triggering AI analysis for item:", item.id, "user:", userId)
+        
+        // Add a timeout for the analysis request
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 30000) // 30 second timeout
+        
         try {
-          // Get current user ID
-          const sb = getSupabaseBrowser()
-          let userId = null
-          if (sb) {
-            const { data: { user } } = await sb.auth.getUser()
-            userId = user?.id
-          }
-          
-          if (!userId) {
-            console.error("No user ID available for analysis")
-            return
-          }
-          
-          console.log("Triggering AI analysis for item:", item.id, "user:", userId)
-          
           const response = await fetch("/api/analyze-item", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
             },
             credentials: "include",
+            signal: controller.signal,
             body: JSON.stringify({
               itemId: item.id,
               userId: userId,
             }),
           })
           
+          clearTimeout(timeoutId)
+          
           if (!response.ok) {
-            const error = await response.text()
-            console.error("Analysis failed:", response.status, error)
-          } else {
-            console.log("AI analysis triggered successfully")
+            const errorText = await response.text()
+            console.error("Analysis failed:", response.status, errorText)
+            throw new Error(`Analysis failed: ${response.status}`)
           }
-        } catch (error) {
-          console.error("Failed to analyze item:", error)
+          
+          console.log("AI analysis completed successfully")
+          setToast({ message: "Item added and analyzed successfully!", open: true })
+          
+          // Refresh items to get the analyzed data
+          setTimeout(() => {
+            loadAllItems()
+          }, 1000)
+          
+        } catch (analysisError: any) {
+          if (analysisError.name === 'AbortError') {
+            throw new Error("Analysis timed out. Please try again.")
+          }
+          throw analysisError
         }
-      }, 3000) // 3 second delay after confirmed save
+      } else {
+        // No photos to analyze, just show success
+        setToast({ message: "Item added successfully!", open: true })
+      }
+      
+    } catch (error: any) {
+      console.error("Failed to add/analyze item:", error)
+      
+      // If item was inserted but analysis failed, delete it
+      if (itemInserted) {
+        console.log("Rolling back item insertion due to analysis failure")
+        try {
+          await deleteItemFromSupabase(item.id, item.photoUrl, item.photoUrls)
+          console.log("Item rolled back successfully")
+        } catch (deleteError) {
+          console.error("Failed to rollback item:", deleteError)
+        }
+      }
+      
+      // Remove from UI list
+      removeItem(item.id)
+      
+      // Store item for potential retry
+      setRetryableItem(item)
+      
+      // Show error toast with specific message and retry action
+      const errorMessage = error.message?.includes("timeout") 
+        ? "Analysis timed out."
+        : "Failed to add item."
+      
+      setToast({ 
+        message: errorMessage,
+        action: "Retry",
+        onAction: handleRetryItem,
+        open: true 
+      })
     }
   }
 
@@ -283,9 +402,7 @@ export default function App() {
       }
 
       // Update local state
-      setItems(prev => prev.map(item => 
-        item.id === editingItem.id ? updatedItem : item
-      ))
+      updateItem(editingItem.id, updatedItem)
       setScreen("home")
       setEditingItem(null)
 
@@ -368,7 +485,7 @@ export default function App() {
     weather?: string
     formality?: number
     timeOfDay?: string
-  }): Promise<Outfit[]> => {
+  }): Promise<{ outfits: Outfit[], shoppingRecommendations: ShoppingRecommendation[] }> => {
     try {
       // Get current user ID
       const sb = getSupabaseBrowser()
@@ -459,7 +576,7 @@ export default function App() {
       }
       
       console.log("[Generate] Returning", outfits.length, "outfit options to user")
-      return outfits
+      return { outfits, shoppingRecommendations: data.shoppingRecommendations || [] }
     } catch (error) {
       console.error("Failed to generate outfit:", error)
       setToast({ 
@@ -467,7 +584,7 @@ export default function App() {
         open: true 
       })
       // Fallback to local generation
-      return generateOutfits(items, requestText, 3)
+      return { outfits: generateOutfits(items, requestText, 3), shoppingRecommendations: [] }
     }
   }
 
@@ -491,25 +608,31 @@ export default function App() {
       <main className="mx-auto max-w-md lg:max-w-2xl px-4 py-4">
         {screen === "home" && (
           <section className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <PrimaryButton onClick={() => setScreen("add")}>Add Item</PrimaryButton>
               <PrimaryButton onClick={() => setScreen("generate")} variant="primary">
                 Generate Outfit
               </PrimaryButton>
+              <PrimaryButton onClick={() => setScreen("shopping")}>
+                Shopping Buddy
+              </PrimaryButton>
               <PrimaryButton onClick={() => setScreen("outfits")}>
                 Outfits
+              </PrimaryButton>
+              <PrimaryButton onClick={() => setScreen("analysis")}>
+                Analyze Wardrobe
               </PrimaryButton>
             </div>
 
             <div className="space-y-3">
-              <h2 className="text-sm font-medium text-neutral-700">Recent items</h2>
+              <h2 className="text-lg font-semibold text-neutral-700">Recent items</h2>
               {recentItems.length === 0 ? (
                 <div className="flex items-center gap-3 p-6 border rounded-2xl bg-neutral-50">
                   <div className="h-12 w-12 rounded-xl border flex items-center justify-center text-xl" aria-hidden>
                     {"👕"}
                   </div>
                   <div className="text-neutral-600">
-                    <div>No items in your closet yet.</div>
+                    <div className="text-base">No items in your closet yet.</div>
                     <div className="text-sm mt-1">Add your first piece with a photo to get started!</div>
                   </div>
                 </div>
@@ -539,7 +662,7 @@ export default function App() {
                     console.log("[Delete] Grid onRemove: deleteItemFromSupabase returned:", ok)
                     if (ok) {
                       console.log("[Delete] Grid onRemove: removing from local state")
-                      setItems((prev) => prev.filter((p) => p.id !== it.id))
+                      removeItem(it.id)
                     }
                     setToast({ message: ok ? "Item removed." : "Failed to remove item.", open: true })
                     console.log("[Delete] Grid onRemove COMPLETE:", { success: ok })
@@ -624,9 +747,29 @@ export default function App() {
             />
           </section>
         )}
+
+        {screen === "analysis" && (
+          <WardrobeAnalysisScreen
+            items={items}
+            onBack={() => setScreen("home")}
+          />
+        )}
+
+        {screen === "shopping" && (
+          <ShoppingBuddy
+            items={items}
+            onBack={() => setScreen("home")}
+          />
+        )}
       </main>
 
-      <Toast open={toast.open} message={toast.message} onOpenChange={(open) => setToast((t) => ({ ...t, open }))} />
+      <Toast 
+        open={toast.open} 
+        message={toast.message} 
+        action={toast.action}
+        onAction={toast.onAction}
+        onOpenChange={(open) => setToast((t) => ({ ...t, open }))} 
+      />
       <ClosetItemModal
         item={selectedItem}
         onClose={() => setSelectedItem(null)}
@@ -638,7 +781,7 @@ export default function App() {
               setSelectedItem(null)
               if (ok) {
                 console.log("[Delete] Modal onRemove: removing from local state")
-                setItems((prev) => prev.filter((p) => p.id !== it.id))
+                removeItem(it.id)
               }
               setToast({ message: ok ? "Item removed." : "Failed to remove item.", open: true })
               console.log("[Delete] Modal onRemove COMPLETE:", { success: ok })
@@ -683,14 +826,14 @@ function GenerateScreen({
     weather?: string
     formality?: number
     timeOfDay?: string
-  }) => Promise<Outfit[]>
+  }) => Promise<{ outfits: Outfit[], shoppingRecommendations: ShoppingRecommendation[] }>
   onSaveOutfit: (outfit: Outfit) => Promise<boolean>
 }) {
   const [request, setRequest] = useState("")
-  const [vibe, setVibe] = useState("")
-  const [weather, setWeather] = useState("")
-  const [formality, setFormality] = useState("") // 1-5 scale, no default
-  const [timeOfDay, setTimeOfDay] = useState("")
+  const [vibes, setVibes] = useState<string[]>([])
+  const [weathers, setWeathers] = useState<string[]>([])
+  const [formalities, setFormalities] = useState<string[]>([])
+  const [timesOfDay, setTimesOfDay] = useState<string[]>([])
   
   // Custom input states
   const [customVibe, setCustomVibe] = useState("")
@@ -704,6 +847,7 @@ function GenerateScreen({
   const [showCustomFormality, setShowCustomFormality] = useState(false)
   const [showCustomTimeOfDay, setShowCustomTimeOfDay] = useState(false)
   const [results, setResults] = useState<Outfit[]>([])
+  const [shoppingRecommendations, setShoppingRecommendations] = useState<ShoppingRecommendation[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
   const [savedOutfitIds, setSavedOutfitIds] = useState<Set<string>>(new Set())
   const [savingOutfitIds, setSavingOutfitIds] = useState<Set<string>>(new Set())
@@ -712,18 +856,26 @@ function GenerateScreen({
 
   const handleGenerateClick = async () => {
     setResults([]) // Clear previous results
+    setShoppingRecommendations([]) // Clear previous shopping recommendations
     setSavedOutfitIds(new Set()) // Clear saved states
     setSavingOutfitIds(new Set()) // Clear saving states
     setIsGenerating(true)
     try {
-      // Convert formality to number if it's a preset, otherwise pass as string
+      // Convert formality array to combined value
       const getFormalityValue = () => {
-        if (showCustomFormality) {
-          const parsed = parseInt(customFormality)
-          return parsed || customFormality || undefined
+        const allFormalities = [...formalities]
+        if (showCustomFormality && customFormality) {
+          allFormalities.push(customFormality)
         }
-        if (!formality) return undefined
-        // Convert preset names to numbers for backward compatibility
+        if (allFormalities.length === 0) return undefined
+        
+        // If we have multiple formalities, join them
+        if (allFormalities.length > 1) {
+          return allFormalities.join(', ')
+        }
+        
+        // Single formality - convert to number if it's a preset for backward compatibility
+        const single = allFormalities[0]
         const formalityMap: {[key: string]: number} = {
           "Very Casual": 1,
           "Casual": 2,
@@ -731,17 +883,18 @@ function GenerateScreen({
           "Formal": 4,
           "Black Tie": 5
         }
-        return formalityMap[formality] || undefined
+        return formalityMap[single] || single
       }
 
       const context = {
-        vibe: showCustomVibe ? customVibe : vibe || undefined,
-        weather: showCustomWeather ? customWeather : weather || undefined,
+        vibe: [...vibes, ...(showCustomVibe && customVibe ? [customVibe] : [])].join(', ') || undefined,
+        weather: [...weathers, ...(showCustomWeather && customWeather ? [customWeather] : [])].join(', ') || undefined,
         formality: getFormalityValue(),
-        timeOfDay: showCustomTimeOfDay ? customTimeOfDay : timeOfDay || undefined,
+        timeOfDay: [...timesOfDay, ...(showCustomTimeOfDay && customTimeOfDay ? [customTimeOfDay] : [])].join(', ') || undefined,
       }
       const res = await onGenerate(request, context)
-      setResults(res)
+      setResults(res.outfits)
+      setShoppingRecommendations(res.shoppingRecommendations)
     } finally {
       setIsGenerating(false)
     }
@@ -765,6 +918,7 @@ function GenerateScreen({
 
   return (
     <section className="space-y-6">
+      
       <div className="grid grid-cols-1 gap-6">
         {/* Required Field */}
         <TextInput
@@ -778,7 +932,7 @@ function GenerateScreen({
 
         {/* Optional Context */}
         <div className="space-y-4">
-          <h3 className="text-sm font-bold text-neutral-700">Optional</h3>
+          <h3 className="text-lg font-semibold text-neutral-700">Optional</h3>
           <div className="space-y-4 p-4 border rounded-lg bg-neutral-50">
           
           {/* Vibe Selector */}
@@ -790,11 +944,15 @@ function GenerateScreen({
                   key={vibeOption}
                   type="button"
                   onClick={() => {
-                    setVibe(vibe === vibeOption ? "" : vibeOption)
+                    setVibes(prev => 
+                      prev.includes(vibeOption) 
+                        ? prev.filter(v => v !== vibeOption)
+                        : [...prev, vibeOption]
+                    )
                     setShowCustomVibe(false)
                   }}
-                  className={`px-3 py-1 text-sm rounded-full border transition ${
-                    vibe === vibeOption && !showCustomVibe
+                  className={`px-3 py-1 text-sm rounded-full border transition-all duration-200 hover:scale-105 ${
+                    vibes.includes(vibeOption) && !showCustomVibe
                       ? "bg-neutral-900 text-white border-neutral-900" 
                       : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-400"
                   }`}
@@ -807,9 +965,9 @@ function GenerateScreen({
                 type="button"
                 onClick={() => {
                   setShowCustomVibe(!showCustomVibe)
-                  setVibe("")
+                  setVibes([])
                 }}
-                className={`px-3 py-1 text-sm rounded-full border transition ${
+                className={`px-3 py-1 text-sm rounded-full border transition-all duration-200 hover:scale-105 ${
                   showCustomVibe
                     ? "bg-neutral-900 text-white border-neutral-900" 
                     : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-400"
@@ -825,7 +983,7 @@ function GenerateScreen({
                 placeholder="Enter custom vibe..."
                 value={customVibe}
                 onChange={(e) => setCustomVibe(e.target.value)}
-                className="mt-2 w-full px-3 py-2 text-sm border border-neutral-300 rounded-md focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500"
+                className="mt-2 w-full px-3 py-2 text-sm border border-neutral-300 rounded-md transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500 focus:border-neutral-500"
                 disabled={isGenerating}
               />
             )}
@@ -840,11 +998,15 @@ function GenerateScreen({
                   key={weatherOption}
                   type="button"
                   onClick={() => {
-                    setWeather(weather === weatherOption ? "" : weatherOption)
+                    setWeathers(prev => 
+                      prev.includes(weatherOption) 
+                        ? prev.filter(w => w !== weatherOption)
+                        : [...prev, weatherOption]
+                    )
                     setShowCustomWeather(false)
                   }}
-                  className={`px-3 py-1 text-sm rounded-full border transition ${
-                    weather === weatherOption && !showCustomWeather
+                  className={`px-3 py-1 text-sm rounded-full border transition-all duration-200 hover:scale-105 ${
+                    weathers.includes(weatherOption) && !showCustomWeather
                       ? "bg-neutral-900 text-white border-neutral-900" 
                       : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-400"
                   }`}
@@ -857,9 +1019,9 @@ function GenerateScreen({
                 type="button"
                 onClick={() => {
                   setShowCustomWeather(!showCustomWeather)
-                  setWeather("")
+                  setWeathers([])
                 }}
-                className={`px-3 py-1 text-sm rounded-full border transition ${
+                className={`px-3 py-1 text-sm rounded-full border transition-all duration-200 hover:scale-105 ${
                   showCustomWeather
                     ? "bg-neutral-900 text-white border-neutral-900" 
                     : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-400"
@@ -875,7 +1037,7 @@ function GenerateScreen({
                 placeholder="Enter weather condition..."
                 value={customWeather}
                 onChange={(e) => setCustomWeather(e.target.value)}
-                className="mt-2 w-full px-3 py-2 text-sm border border-neutral-300 rounded-md focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500"
+                className="mt-2 w-full px-3 py-2 text-sm border border-neutral-300 rounded-md transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500 focus:border-neutral-500"
                 disabled={isGenerating}
               />
             )}
@@ -890,11 +1052,15 @@ function GenerateScreen({
                   key={formalityOption}
                   type="button"
                   onClick={() => {
-                    setFormality(formalityOption)
+                    setFormalities(prev => 
+                      prev.includes(formalityOption) 
+                        ? prev.filter(f => f !== formalityOption)
+                        : [...prev, formalityOption]
+                    )
                     setShowCustomFormality(false)
                   }}
-                  className={`px-3 py-1 text-sm rounded-full border transition ${
-                    formality === formalityOption && !showCustomFormality
+                  className={`px-3 py-1 text-sm rounded-full border transition-all duration-200 hover:scale-105 ${
+                    formalities.includes(formalityOption) && !showCustomFormality
                       ? "bg-neutral-900 text-white border-neutral-900" 
                       : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-400"
                   }`}
@@ -907,9 +1073,9 @@ function GenerateScreen({
                 type="button"
                 onClick={() => {
                   setShowCustomFormality(!showCustomFormality)
-                  setFormality("")
+                  setFormalities([])
                 }}
-                className={`px-3 py-1 text-sm rounded-full border transition ${
+                className={`px-3 py-1 text-sm rounded-full border transition-all duration-200 hover:scale-105 ${
                   showCustomFormality
                     ? "bg-neutral-900 text-white border-neutral-900" 
                     : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-400"
@@ -925,7 +1091,7 @@ function GenerateScreen({
                 placeholder="Enter formality description..."
                 value={customFormality}
                 onChange={(e) => setCustomFormality(e.target.value)}
-                className="mt-2 w-full px-3 py-2 text-sm border border-neutral-300 rounded-md focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500"
+                className="mt-2 w-full px-3 py-2 text-sm border border-neutral-300 rounded-md transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500 focus:border-neutral-500"
                 disabled={isGenerating}
               />
             )}
@@ -940,11 +1106,15 @@ function GenerateScreen({
                   key={timeOption}
                   type="button"
                   onClick={() => {
-                    setTimeOfDay(timeOfDay === timeOption ? "" : timeOption)
+                    setTimesOfDay(prev => 
+                      prev.includes(timeOption) 
+                        ? prev.filter(t => t !== timeOption)
+                        : [...prev, timeOption]
+                    )
                     setShowCustomTimeOfDay(false)
                   }}
-                  className={`px-3 py-1 text-sm rounded-full border transition ${
-                    timeOfDay === timeOption && !showCustomTimeOfDay
+                  className={`px-3 py-1 text-sm rounded-full border transition-all duration-200 hover:scale-105 ${
+                    timesOfDay.includes(timeOption) && !showCustomTimeOfDay
                       ? "bg-neutral-900 text-white border-neutral-900" 
                       : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-400"
                   }`}
@@ -957,9 +1127,9 @@ function GenerateScreen({
                 type="button"
                 onClick={() => {
                   setShowCustomTimeOfDay(!showCustomTimeOfDay)
-                  setTimeOfDay("")
+                  setTimesOfDay([])
                 }}
-                className={`px-3 py-1 text-sm rounded-full border transition ${
+                className={`px-3 py-1 text-sm rounded-full border transition-all duration-200 hover:scale-105 ${
                   showCustomTimeOfDay
                     ? "bg-neutral-900 text-white border-neutral-900" 
                     : "bg-white text-neutral-700 border-neutral-300 hover:border-neutral-400"
@@ -975,7 +1145,7 @@ function GenerateScreen({
                 placeholder="Enter time of day..."
                 value={customTimeOfDay}
                 onChange={(e) => setCustomTimeOfDay(e.target.value)}
-                className="mt-2 w-full px-3 py-2 text-sm border border-neutral-300 rounded-md focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:border-neutral-500"
+                className="mt-2 w-full px-3 py-2 text-sm border border-neutral-300 rounded-md transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-500 focus:border-neutral-500"
                 disabled={isGenerating}
               />
             )}
@@ -994,19 +1164,21 @@ function GenerateScreen({
       </div>
 
       {items.length < 2 && !isGenerating && (
-        <div className="p-4 border rounded-2xl bg-neutral-50 text-neutral-700">Add a few items first.</div>
+        <div className="p-4 border rounded-2xl bg-neutral-50 text-neutral-700">
+          You need at least 2 items to generate outfits. Currently you have {items.length} {items.length === 1 ? 'item' : 'items'}.
+        </div>
       )}
 
       {isGenerating && (
         <div className="flex flex-col items-center justify-center p-8 border rounded-2xl bg-neutral-50">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-neutral-600 mb-4"></div>
           <div className="text-neutral-700 font-medium">Creating your outfits...</div>
-          <div className="text-neutral-500 text-sm mt-1">Analyzing colors, styles, and coordination</div>
+          <div className="text-neutral-500 text-sm mt-1">Analyzing {items.length} items for colors, styles, and coordination</div>
         </div>
       )}
 
       <div className="space-y-3">
-        {results.length > 0 && <h2 className="text-sm font-medium text-neutral-700">Results</h2>}
+        {results.length > 0 && <h2 className="text-lg font-semibold text-neutral-700">Results</h2>}
         {results.map((o) => {
           const chosen = o.itemIds.map((id) => items.find((it) => it.id === id)).filter(Boolean) as ClothingItem[]
           return (
@@ -1037,6 +1209,14 @@ function GenerateScreen({
           )
         })}
       </div>
+
+      {shoppingRecommendations.length > 0 && (
+        <ShoppingRecommendations 
+          recommendations={shoppingRecommendations}
+          items={items}
+          className="mt-6"
+        />
+      )}
     </section>
   )
 }
