@@ -2,7 +2,7 @@
 
 Your AI-powered personal styling assistant. Upload photos of your clothing items and get intelligent outfit recommendations, wardrobe analysis, and shopping suggestions tailored to your style and needs.
 
-## ✨ What You Can Do
+## What You Can Do
 
 ### 📷 Smart Wardrobe Management
 - **Upload clothing photos** - Add items to your digital closet with multiple photos per piece
@@ -27,7 +27,7 @@ Your AI-powered personal styling assistant. Upload photos of your clothing items
 ## 🚀 Getting Started
 
 ### 1. Create Your Account
-Sign up with your email to start building your digital wardrobe.
+Go to https://v0-outfit-generator-ui.vercel.app/ and sign up with your email to start building your digital wardrobe.
 
 ### 2. Add Your First Items
 - Click "Add Item" on the homepage
@@ -65,20 +65,6 @@ Sign up with your email to start building your digital wardrobe.
 - Don't forget accessories, shoes, and outerwear
 - Regular updates help improve recommendations
 
-## 🔒 Privacy & Security
-
-- **Your data is yours** - Only you can see your wardrobe and outfits
-- **Secure storage** - All photos are stored securely and never shared
-- **Account protection** - Industry-standard authentication keeps your account safe
-
-## 📱 Access Anywhere
-
-The app works great on:
-- Desktop computers
-- Tablets
-- Mobile phones
-- Any device with a modern web browser
-
 ## 🆘 Need Help?
 
 Having trouble? Here are some common solutions:
@@ -98,13 +84,7 @@ Having trouble? Here are some common solutions:
 - Be more specific in your requests
 - Try different combinations of weather/occasion settings
 
-## 🎯 Perfect For
-
-- **Fashion enthusiasts** who want to maximize their wardrobe
-- **Busy professionals** who need quick styling decisions
-- **Sustainable fashion lovers** who want to shop more intentionally
-- **Anyone** who's ever stood in front of their closet saying "I have nothing to wear!"
 
 ---
 
-Start building your perfect wardrobe today! 👗✨
+Start building your perfect wardrobe today!

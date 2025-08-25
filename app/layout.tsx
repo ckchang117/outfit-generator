@@ -5,9 +5,9 @@ import './globals.css'
 import AuthControls from '@/src/components/auth-controls'
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
-  generator: 'v0.dev',
+  title: 'Outfit Generator',
+  description: 'Created by Carey Chang',
+  generator: 'Carey Chang',
 }
 
 export default function RootLayout({

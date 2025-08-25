@@ -2052,11 +2052,11 @@ async def generate_outfit(req: GenerateOutfitRequest):
     
     # Shuffle closet once for variety, then use rotation for each outfit
     random.shuffle(closet_summary)
-    print(f"[Agents] Shuffled closet once, generating 3 outfits in parallel")
+    print(f"[Agents] Shuffled closet once, generating 2 outfits in parallel")
     
-    # Generate 3 outfits IN PARALLEL
+    # Generate 2 outfits IN PARALLEL
     outfit_tasks = []
-    for i in range(3):
+    for i in range(2):
         task = generate_single_outfit_async(
             closet_summary,
             requirements,
