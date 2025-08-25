@@ -4,7 +4,7 @@ import asyncio
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, validator
 from typing import List, Optional, Dict, Any, Union
-from agents import Agent, Runner
+from openai_agents import Agent, Runner
 from dotenv import load_dotenv
 import json
 import re
@@ -23,6 +23,12 @@ if not OPENAI_API_KEY:
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 app = FastAPI(title="Outfit Generator Agents Service")
+
+
+@app.get("/")
+async def health():
+    """Health check endpoint to verify service is running"""
+    return {"status": "healthy", "service": "Outfit Generator AI Service"}
 
 
 def fix_photo_url(url: str) -> str:
